@@ -722,6 +722,80 @@ def parse_bmo_new(pdf_path):
 
 #BMO end 2 categery BMO business also available
 
+#Bank of Amrica parser start
+def parse_bofa(pdf_path):
+    """
+    Parse Bank of America Business Advantage Fundamentals Banking statements.
+    Extracts:
+      - Deposits and other credits
+      - Withdrawals and other debits
+      - Daily ledger balances
+    """
+    rows = []
+    section = None
+
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            for raw in text.split("\n"):
+                line = raw.strip()
+                if not line:
+                    continue
+
+                # Section headers
+                if re.search(r"Deposits and other credits", line, re.I):
+                    section = "credits"
+                    continue
+                if re.search(r"Withdrawals and other debits", line, re.I):
+                    section = "debits"
+                    continue
+                if re.search(r"Daily ledger balances", line, re.I):
+                    section = "balances"
+                    continue
+
+                # Skip headers/totals
+                if re.match(r"^Date\s+Description\s+Amount", line, re.I):
+                    continue
+                if re.match(r"Total deposits", line, re.I) or \
+                   re.match(r"Total withdrawals", line, re.I) or \
+                   re.match(r"Service fees", line, re.I):
+                    continue
+
+                # ---- Deposits / Withdrawals ----
+                if section in ("credits", "debits"):
+                    m = re.match(r"^(\d{2}/\d{2}/\d{2})\s+(.+?)\s+(-?\$?[\d,]+\.\d{2})$", line)
+                    if m:
+                        date_s, desc, amt_s = m.groups()
+                        amt = clean_amount(amt_s)
+                        rows.append({
+                            "date": try_parse_date(date_s),
+                            "description": desc.strip(),
+                            "credit": amt if section == "credits" else None,
+                            "debit": amt if section == "debits" else None,
+                            "balance": None
+                        })
+                    else:
+                        # Continuation line → append to previous description
+                        if rows:
+                            rows[-1]["description"] += " " + line
+                    continue
+
+                # ---- Daily Ledger Balances ----
+                if section == "balances":
+                    m = re.findall(r"(\d{2}/\d{2})\s+([\d,]+\.\d{2})", line)
+                    for date_s, bal_s in m:
+                        rows.append({
+                            "date": try_parse_date(date_s),
+                            "description": "Daily Balance",
+                            "credit": None,
+                            "debit": None,
+                            "balance": clean_amount(bal_s)
+                        })
+                    continue
+
+    return rows
+
+#Bank of Amrica parser end
 
 #Parse JPMorgan Chase bank statements (sample6/7/8) start
 #Helper Functions inside
@@ -787,8 +861,8 @@ def parse_statement(pdf_path):
         rows = parse_chase_credit(pdf_path)
     #elif bank == "Chase Bank":
        # rows = parse_chase_JPMorgan(pdf_path)          # 👈 new Chase checking parser (sample6/7/8)
-   # elif bank == "Bank of America":   # Bank of amrica parse call   
-     #   rows = parse_bofa(pdf_path)
+    elif bank == "Bank of America":   # Bank of amrica parse call   
+        rows = parse_bofa(pdf_path)
     elif bank == "BMO":
         # Auto decide old vs new style
         if "Monthly Activity Details" in text:
