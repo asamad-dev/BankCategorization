@@ -69,9 +69,6 @@ def detect_bank(text):
 # Wells Fargo (A) Optimize Business Checking — inline lines
 # ----------------------------
 
-import re
-import pdfplumber
-
 def parse_wellsfargo_optimize(pdf_path):
     """
     Wells Fargo — Optimize Business Checking.
@@ -192,10 +189,6 @@ def parse_wellsfargo_optimize(pdf_path):
 
 # ----------------------------
 # Wells Fargo (B) Combined Statement / Navigate Business Checking — tabular "Transaction history"
-# Matches: _073124 WellsFargo (2).pdf
-# ----------------------------
-
-
 
 def parse_wellsfargo_combined_navbiz(pdf_path, account_name_hint="Navigate Business Checking"):
     """
@@ -344,6 +337,56 @@ def parse_wellsfargo_combined_navbiz(pdf_path, account_name_hint="Navigate Busin
 
     return rows
 
+#3rd type of Wells Fargo statement functions if any
+
+def parse_wellsfargo_business_card(pdf_path: str):
+    """
+    Parse Wells Fargo Business Credit Card statement.
+    Returns list of dicts: {trans_date, post_date, description, credit, debit}
+    """
+    rows = []
+    date_re = re.compile(r"^\d{2}/\d{2}")  # MM/DD
+    money_re = re.compile(r"(\d{1,3}(?:,\d{3})*\.\d{2})")
+
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            for raw in text.split("\n"):
+                line = raw.strip()
+                if not line:
+                    continue
+
+                # Skip headers
+                if line.startswith(("Trans", "Page", "See reverse side", "WELLS FARGO")):
+                    continue
+
+                if date_re.match(line):
+                    parts = line.split()
+                    trans_date = parts[0]
+                    post_date = parts[1] if re.match(r"\d{2}/\d{2}", parts[1]) else None
+                    rest = " ".join(parts[2:]) if post_date else " ".join(parts[1:])
+
+                    # Find money values
+                    amounts = money_re.findall(rest)
+                    credit = debit = None
+                    if amounts:
+                        if "PAYMENT" in rest.upper():
+                            credit = clean_amount(amounts[-1])
+                        else:
+                            debit = clean_amount(amounts[-1])
+
+                    desc = money_re.sub("", rest).strip()
+
+                    rows.append({
+                        "date": try_parse_date(trans_date),
+                        "post_date": try_parse_date(post_date) if post_date else None,
+                        "description": desc,
+                        "credit": credit,
+                        "debit": debit,
+                        "balance": None
+                    })
+
+    return rows
 
 
 # ----------------------------
@@ -363,6 +406,9 @@ def parse_wellsfargo(pdf_path):
     # Strong hints per your two samples:
     #   A) Optimize Business Checking (U.S. Roadways): has "Optimize Business Checking" and "Electronic deposits/bank credits"
     #   B) Combined Statement (Barbar LLC): has "Combined Statement of Accounts" and "Navigate Business Checking"
+
+    if "business card" in text_l or "prepared for" in text_l:
+        return parse_wellsfargo_business_card(pdf_path)
     if ("combined statement of accounts" in text_l) or ("navigate business checking" in text_l):
         return parse_wellsfargo_combined_navbiz(pdf_path)
     if "optimize business checking" in text_l:
