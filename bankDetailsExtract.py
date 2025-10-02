@@ -64,68 +64,315 @@ def detect_bank(text):
 # ==================================================
 
 #Parse Wells Fargo business statements Start
-def parse_wellsfargo(pdf_path):
-    """Parse Wells Fargo business statements into one row: date, desc, debit, credit, balance."""
+
+# ----------------------------
+# Wells Fargo (A) Optimize Business Checking — inline lines
+# ----------------------------
+
+import re
+import pdfplumber
+
+def parse_wellsfargo_optimize(pdf_path):
+    """
+    Wells Fargo — Optimize Business Checking.
+    Parses the two ledger sections:
+      - Electronic deposits/bank credits  -> credit column
+      - Electronic debits/bank debits     -> debit column
+    Rows may begin with 1 or 2 dates (Effective, Posted). We use Posted if present.
+    """
     rows = []
-    date_re = re.compile(r"^\d{1,2}/\d{1,2}\b")
+
+    # Dates like MM/DD or MM/DD/YY or MM/DD/YYYY
+    date_token = r"\d{1,2}/\d{1,2}(?:/\d{2,4})?"
+    # Money amounts like 1,234.56 (may include $ or leading -)
+    money_re = re.compile(r"-?\$?\d[\d,]*\.\d{2}")
+
+    # Helpers
+    def clean_amount(s):
+        s = s.replace("$", "").replace(",", "").strip()
+        if s.startswith("(") and s.endswith(")"):
+            s = "-" + s[1:-1]
+        return float(s)
+
+    def try_parse_date(s):
+        from datetime import datetime, date
+        s = s.strip()
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%m/%d"):
+            try:
+                if fmt == "%m/%d" and s.count("/") == 1:
+                    # assume current year if missing
+                    s = f"{s}/{datetime.today().year}"
+                    return datetime.strptime(s, "%m/%d/%Y").date()
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return s  # leave as-is if unparsable
+
+    # Section detection
+    credits_hdr = re.compile(r"electronic deposits/?bank credits", re.IGNORECASE)
+    debits_hdr  = re.compile(r"electronic debits/?bank debits", re.IGNORECASE)
+
+    # Lines to skip outright (column headers & boilerplate)
+    skip_prefixes = tuple(x.lower() for x in [
+        "account number", "account summary", "credits", "debits",
+        "checks paid", "daily ledger balance summary", "notice:",
+        "effective", "posted", "amount", "transaction detail",
+        "questions?", "page", "sheet seq", "sheet", "©2010",
+        "all rights reserved", "member fdic"
+    ])
+
+    current_section = None   # 'credit' or 'debit'
 
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            text = page.extract_text()
-            if not text:
-                continue
+            text = page.extract_text() or ""
+            for raw in text.split("\n"):
+                line = raw.strip()
+                if not line:
+                    continue
+                low = line.lower()
 
-            for line in text.split("\n"):
-                line = line.strip()
-                if not line or line.startswith(("Date", "Transaction", "Check Deposits", "Accountnumber")):
+                # Detect section boundaries
+                if credits_hdr.search(low):
+                    current_section = "credit"
+                    continue
+                if debits_hdr.search(low):
+                    current_section = "debit"
+                    continue
+                # Break out when a new major block starts
+                if low.startswith(("checks paid", "daily ledger balance summary")):
+                    current_section = None
+
+                # Ignore table/boilerplate lines
+                if any(low.startswith(p) for p in skip_prefixes):
+                    continue
+                if current_section not in ("credit", "debit"):
+                    continue  # outside a txn section
+
+                # ---- Parse a transaction or a continuation line ----
+                # Row can start with 1 or 2 dates:
+                #   "07/01 229,600.50  Description..."         (credits)
+                #   "06/28  07/01 24,150.84  Description..."  (debits)
+                m = re.match(rf"^\s*({date_token})(?:\s+({date_token}))?\s+(.*)$", line)
+                if not m:
+                    # Continuation: append to last description
+                    if rows:
+                        rows[-1]["description"] = (rows[-1]["description"] + " " + line).strip()
                     continue
 
-                if date_re.match(line):
-                    parts = line.split()
-                    date_s = parts[0]
-                    rest = " ".join(parts[1:])
+                eff_date, posted_date, tail = m.group(1), m.group(2), m.group(3)
+                date_s = posted_date or eff_date  # prefer Posted date if present
 
-                    # Extract amounts
-                    amounts = re.findall(r"\d[\d,]*\.\d{2}", rest)
-                    debit = credit = balance = None
-
-                    if amounts:
-                        if len(amounts) == 1:
-                            amt = clean_amount(amounts[0])
-                            # Heuristic: credit vs debit
-                            if "Deposit" in rest or "Credit" in rest:
-                                credit = amt
-                            else:
-                                debit = amt
-                        elif len(amounts) == 2:
-                            # Usually credit + balance
-                            credit = clean_amount(amounts[0])
-                            balance = clean_amount(amounts[1])
-                        elif len(amounts) == 3:
-                            # Debit, credit, balance all present
-                            debit = clean_amount(amounts[0])
-                            credit = clean_amount(amounts[1])
-                            balance = clean_amount(amounts[2])
-
-                        # Remove numbers → leave description only
-                        desc = re.sub(r"\d[\d,]*\.\d{2}", "", rest).replace("<", "").strip()
+                # Pull the first money token on the line as the txn amount
+                amounts = money_re.findall(tail)
+                credit = debit = balance = None  # balance not shown in these sections
+                if amounts:
+                    amt = clean_amount(amounts[0])
+                    # Remove all money tokens from description
+                    desc = money_re.sub("", tail).replace("<", "").strip()
+                    if current_section == "credit":
+                        credit = amt
                     else:
-                        desc = rest
-
-                    rows.append({
-                        "date": try_parse_date(date_s),
-                        "description": desc,
-                        "debit": debit,
-                        "credit": credit,
-                        "balance": balance
-                    })
-
+                        debit = amt
                 else:
-                    # continuation line → append to last row description
+                    # Rare: line with dates but no amount → treat as continuation
                     if rows:
-                        rows[-1]["description"] += " " + line
+                        rows[-1]["description"] = (rows[-1]["description"] + " " + tail).strip()
+                    continue
+
+                rows.append({
+                    "date": try_parse_date(date_s),
+                    "description": desc,
+                    "debit": debit,
+                    "credit": credit,
+                    "balance": balance  # remains None in these sections
+                })
 
     return rows
+
+# ----------------------------
+# Wells Fargo (B) Combined Statement / Navigate Business Checking — tabular "Transaction history"
+# Matches: _073124 WellsFargo (2).pdf
+# ----------------------------
+
+
+
+def parse_wellsfargo_combined_navbiz(pdf_path, account_name_hint="Navigate Business Checking"):
+    """
+    Wells Fargo Combined Statement (Navigate Business Checking).
+    Aligns Deposits/Credits, Withdrawals/Debits, Balance columns using
+    a PDF-specific keyword classifier for 2-number rows.
+    """
+    rows = []
+    date_re  = re.compile(r"^\d{1,2}/\d{1,2}(?:/\d{2,4})?\b")
+    money_re = re.compile(r"-?\$?\d[\d,]*\.\d{2}")
+
+    # Headers/sections
+    start_section_re = re.compile(rf"{re.escape(account_name_hint)}", re.IGNORECASE)
+    txn_header_re    = re.compile(r"transaction history", re.IGNORECASE)
+    end_markers = [
+        "Ending balance on",
+        "Summary of checks written",
+        "Business Market Rate Savings",
+        "Monthly service fee summary",
+        "Account transaction fees summary",
+        "Important Information You Should Know",
+        "Totals $",  # end of table block
+    ]
+
+    # --- Classifier tuned to your PDF text ---
+    CREDIT_HINTS = [
+        # table header bucket: Deposits/Credits
+        "deposit", "edeposit", "e deposit", "wells fargo rewards", "rewards",
+        "interest payment", "interest",
+        # Heartland merchant settlement text in your PDF
+        "hrtland", "heartland", "pmt sys", "txns/fees", "slam dunk sports bar",
+        # other typical incoming types
+        "online transfer from", "zelle payment from", "wt fed", "wire in", "incoming wire",
+    ]
+    DEBIT_HINTS = [
+        # table header bucket: Withdrawals/Debits
+        "ach debit", "business to business ach debit",
+        "purchase authorized", "recurring payment", "online transfer to",
+        "check", "deposited or cashed check",
+        "currency ordered fee", "coin ordered fee", "fee",
+        "lottery lotto invoices", "ins prem", "payroll",
+        "transfer to", "bill pay", "dtv*directv", "amazon",
+    ]
+
+    def looks_credit(desc: str) -> bool:
+        d = desc.lower()
+        return any(k in d for k in CREDIT_HINTS)
+
+    def looks_debit(desc: str) -> bool:
+        d = desc.lower()
+        return any(k in d for k in DEBIT_HINTS)
+
+    in_nav = False
+    in_txn = False
+
+    import pdfplumber
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+
+            for line in lines:
+                # enter/exit the transaction table
+                if not in_nav and start_section_re.search(line):
+                    in_nav = True
+                    continue
+                if in_nav and not in_txn and txn_header_re.search(line):
+                    in_txn = True
+                    continue
+                if in_txn and any(line.startswith(m) for m in end_markers):
+                    in_txn = False
+                    in_nav = False
+                    continue
+                if not in_txn:
+                    continue
+
+                # skip table headings
+                low = line.lower()
+                if ("page" in low and "transaction history" in low) or \
+                   low.startswith(("date ", "check ", "deposits/credits", "withdrawals/debits", "ending daily")):
+                    continue
+
+                if not date_re.match(line):
+                    # continuation: append to previous description
+                    if rows:
+                        rows[-1]["description"] = (rows[-1]["description"] + " " + line).strip()
+                    continue
+
+                # parse a transaction row
+                parts = line.split()
+                date_s = parts[0]
+                rest   = " ".join(parts[1:])
+                nums   = [float(a.replace("$","").replace(",","")) for a in money_re.findall(rest)]
+                desc   = money_re.sub("", rest).strip()
+
+                credit = debit = balance = None
+
+                if len(nums) == 3:
+                    # PDF order is Deposits/Credits, Withdrawals/Debits, Ending daily balance
+                    credit, debit, balance = nums
+                elif len(nums) == 2:
+                    # Usually amount + ending balance. Decide which side via description.
+                    amt, bal = nums
+                    balance = bal
+                    if looks_credit(desc) and not looks_debit(desc):
+                        credit = amt
+                    elif looks_debit(desc) and not looks_credit(desc):
+                        debit = amt
+                    else:
+                        # tie-breakers:
+                        # Heartland rows (merchant settlements) are credits in your PDF
+                        if "hrtland" in desc.lower() or "heartland" in desc.lower():
+                            credit = amt
+                        # lines that literally contain 'deposit' or 'interest' are credits
+                        elif any(k in desc.lower() for k in ("deposit", "interest", "rewards")):
+                            credit = amt
+                        else:
+                            # conservative default: treat as debit only if strong debit signals; else credit
+                            debit_keywords = ("ach debit", "purchase authorized", "recurring payment",
+                                              "online transfer to", "check", "fee", "lottery")
+                            if any(k in desc.lower() for k in debit_keywords):
+                                debit = amt
+                            else:
+                                credit = amt
+                elif len(nums) == 1:
+                    # If only one number appears, most lines in this layout use it as a txn amount
+                    amt = nums[0]
+                    if looks_credit(desc) and not looks_debit(desc):
+                        credit = amt
+                    elif looks_debit(desc) and not looks_credit(desc):
+                        debit = amt
+                    else:
+                        # strong fallbacks by explicit nouns
+                        if any(k in desc.lower() for k in ("deposit", "interest", "rewards", "hrtland", "heartland", "txns/fees")):
+                            credit = amt
+                        else:
+                            debit = amt
+
+                rows.append({
+                    "date": try_parse_date(date_s),
+                    "description": desc,
+                    "credit": credit,
+                    "debit": debit,
+                    "balance": balance
+                })
+
+    return rows
+
+
+
+# ----------------------------
+# Dispatcher helper for Wells Fargo, auto-detect the layout
+# ----------------------------
+def parse_wellsfargo(pdf_path):
+    """
+    Auto-detect which Wells Fargo format the PDF is:
+      - Optimize Business Checking (inline): use parse_wellsfargo_optimize
+      - Combined Statement / Navigate Business Checking (tabular): use parse_wellsfargo_combined_navbiz
+    """
+    with pdfplumber.open(pdf_path) as pdf:
+        text = "\n".join([p.extract_text() or "" for p in pdf.pages])
+
+    text_l = text.lower()
+
+    # Strong hints per your two samples:
+    #   A) Optimize Business Checking (U.S. Roadways): has "Optimize Business Checking" and "Electronic deposits/bank credits"
+    #   B) Combined Statement (Barbar LLC): has "Combined Statement of Accounts" and "Navigate Business Checking"
+    if ("combined statement of accounts" in text_l) or ("navigate business checking" in text_l):
+        return parse_wellsfargo_combined_navbiz(pdf_path)
+    if "optimize business checking" in text_l:
+        return parse_wellsfargo_optimize(pdf_path)
+
+    # Fallback: decide by presence of "Transaction history" (tabular) vs "Electronic deposits/bank credits" (inline)
+    if "transaction history" in text_l:
+        return parse_wellsfargo_combined_navbiz(pdf_path)
+    else:
+        return parse_wellsfargo_optimize(pdf_path)
 
 #Parse Wells Fargo business statements End
 
@@ -494,8 +741,8 @@ def parse_statement(pdf_path):
         rows = parse_chase_credit(pdf_path)
     #elif bank == "Chase Bank":
        # rows = parse_chase_JPMorgan(pdf_path)          # 👈 new Chase checking parser (sample6/7/8)
-    elif bank == "Bank of America":   # Bank of amrica parse call   
-        rows = parse_bofa(pdf_path)
+   # elif bank == "Bank of America":   # Bank of amrica parse call   
+     #   rows = parse_bofa(pdf_path)
     elif bank == "BMO":
         # Auto decide old vs new style
         if "Monthly Activity Details" in text:
@@ -526,6 +773,8 @@ def process_pdfs():
         df = parse_statement(pdf_file)
         if df.empty:
             print(f"⚠️ No transactions found in {pdf_file.name}")
+            output_file = OUTPUT_DIR / f"_FAILED{pdf_file.stem}.xlsx"
+            df.to_excel(output_file, index=False)
             continue
         output_file = OUTPUT_DIR / f"{pdf_file.stem}.xlsx"
         df.to_excel(output_file, index=False)
