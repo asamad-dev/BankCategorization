@@ -5,7 +5,7 @@ import pandas as pd
 from decimal import Decimal
 from dateutil import parser as dateparser
 from pathlib import Path
-import re
+from datetime import datetime
 
 
 # ==================================================
@@ -720,6 +720,86 @@ def parse_bmo_new(pdf_path):
                 })
     return rows
 
+
+#BMO credit card parser start
+
+
+
+def clean_amount(value: str) -> Decimal:
+    """Convert amount string into Decimal"""
+    value = value.replace("$", "").replace(",", "").strip()
+    try:
+        return Decimal(value)
+    except:
+        return Decimal(0)
+
+def try_parse_date(value: str):
+    """Try parsing dates like 'Aug 14 2025' or 'Aug 14, 2025'"""
+    for fmt in ["%b %d %Y", "%b %d, %Y", "%b %d %y"]:
+        try:
+            return datetime.strptime(value.replace(",", ""), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def parse_bmo_creditcard(pdf_path: str) -> pd.DataFrame:
+    """
+    Parse BMO Business Platinum Credit Card statement into a DataFrame.
+    Returns columns: date, description, debit, credit, balance.
+    """
+    rows = []
+    money_re = re.compile(r"-?\$?\d[\d,]*\.\d{2}")
+    date_re = re.compile(
+        r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}",
+        re.I,
+    )
+
+    with pdfplumber.open(pdf_path) as pdf:
+        pending_desc = None
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            for raw in text.split("\n"):
+                line = " ".join(raw.strip().split())
+                if not line:
+                    continue
+
+                # Case 1: line contains amount → store description+amount
+                m_amt = money_re.search(line)
+                if m_amt:
+                    amt = clean_amount(m_amt.group(0))
+                    desc = money_re.sub("", line).strip()
+                    pending_desc = (desc, amt)
+                    continue
+
+                # Case 2: line contains date → pair with stored desc+amount
+                if date_re.match(line) and pending_desc:
+                    desc, amt = pending_desc
+                    debit, credit = None, None
+                    if amt < 0:
+                        credit = abs(amt)
+                    else:
+                        debit = amt
+
+                    parsed_date = try_parse_date(line)
+                    row = {
+                        "date": parsed_date,
+                        "description": desc,
+                        "debit": debit,
+                        "credit": credit,
+                        "balance": None,
+                    }
+                    print("APPEND:", row)  # debug
+                    rows.append(row)
+                    pending_desc = None
+
+    return pd.DataFrame(rows, columns=["date", "description", "debit", "credit", "balance"])
+
+
+#BMO credit card parser end
+
+
+
 #BMO end 2 categery BMO business also available
 
 #Bank of Amrica parser start
@@ -850,30 +930,46 @@ def extract_transactions(pdf_path):
 # ==================================================
 def parse_statement(pdf_path):
     with pdfplumber.open(pdf_path) as pdf:
-     text = "\n".join([p.extract_text() or "" for p in pdf.pages])
+        text = "\n".join([p.extract_text() or "" for p in pdf.pages])
 
     bank = detect_bank(text)
     print(f"Detected bank: {bank}")
     
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            first_page_text = pdf.pages[0].extract_text() or ""
+    except Exception as e:
+        print(f"❌ Failed to open {pdf_path}: {e}")
+        return pd.DataFrame(columns=["date", "description", "debit", "credit", "balance", "bank"])
+
+    rows = []  # default fallback
+
     if bank == "Wells Fargo":
         rows = parse_wellsfargo(pdf_path)
     elif bank == "Chase Credit Card":
         rows = parse_chase_credit(pdf_path)
-    #elif bank == "Chase Bank":
-       # rows = parse_chase_JPMorgan(pdf_path)          # 👈 new Chase checking parser (sample6/7/8)
-    elif bank == "Bank of America":   # Bank of amrica parse call   
+    # elif bank == "Chase Bank":
+    #     rows = parse_chase_JPMorgan(pdf_path)
+    elif bank == "Bank of America":
         rows = parse_bofa(pdf_path)
+    elif "BMO" in first_page_text or "Business Platinum Credit Card" in first_page_text:
+        rows = parse_bmo_creditcard(pdf_path)
+        bank = "BMO"
     elif bank == "BMO":
-        # Auto decide old vs new style
         if "Monthly Activity Details" in text:
-            rows = parse_bmo_new(pdf_path)   # 👈 new style parser (sample10)
+            rows = parse_bmo_new(pdf_path)
         else:
-            rows = parse_bmo_old(pdf_path)   # 👈 old style parser (sample9)
+            rows = parse_bmo_old(pdf_path)
     else:
         rows = extract_transactions(pdf_path)
-    for r in rows:
-        r["bank"] = bank
-    return pd.DataFrame(rows)
+
+    # --- Normalize to DataFrame and add bank column ---
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["bank"] = bank
+
+    return df
+
 # ==================================================
 # Batch Processor
 # ==================================================
