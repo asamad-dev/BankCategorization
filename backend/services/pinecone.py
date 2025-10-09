@@ -43,7 +43,7 @@ def create_vector_db(documents):
             # logger.info(f"Index '{index_name}' does not exist. Creating a new index.")
             pc.create_index(
                 name=index_name,
-                dimension=512,
+                dimension=384,
                 metric="cosine",
 
                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
