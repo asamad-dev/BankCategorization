@@ -43,7 +43,7 @@ def create_vector_db(documents):
             # logger.info(f"Index '{index_name}' does not exist. Creating a new index.")
             pc.create_index(
                 name=index_name,
-                dimension=384,
+                dimension=768,
                 metric="cosine",
 
                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
@@ -72,7 +72,7 @@ def create_vector_db(documents):
 
     except Exception as e:
         # logger.exception("An error occurred while initializing the Pinecone vector store.")
-        raise
+        raise e
 
 
 
