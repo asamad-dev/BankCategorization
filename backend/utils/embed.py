@@ -1,0 +1,8 @@
+from langchain_huggingface import HuggingFaceEmbeddings
+import os
+
+
+def huggingface_emb():
+    emb_model = os.getenv("emb_model")
+    embed_fn = HuggingFaceEmbeddings(model_name=emb_model)
+    return embed_fn
