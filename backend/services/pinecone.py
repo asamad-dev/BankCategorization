@@ -6,6 +6,10 @@ from backend.utils.embed import huggingface_emb
 from pinecone import ServerlessSpec
 from backend.utils.logger import log_message
 import time
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 # logger = get_logger(__name__)

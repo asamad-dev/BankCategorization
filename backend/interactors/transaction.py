@@ -8,6 +8,7 @@ from io import StringIO
 from typing import List, Dict
 from langchain_core.documents import Document
 from langchain_google_genai import ChatGoogleGenerativeAI
+from dotenv import load_dotenv
 
 from backend.services.pinecone import (
     create_vector_db,
@@ -16,6 +17,9 @@ from backend.services.pinecone import (
 )
 from backend.utils.logger import log_message
 from backend.utils.embed import huggingface_emb
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 # ========== GLOBAL INITIALIZATION ==========

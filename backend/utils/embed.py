@@ -1,5 +1,9 @@
 from langchain_huggingface import HuggingFaceEmbeddings
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def huggingface_emb():

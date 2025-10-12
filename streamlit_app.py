@@ -1,8 +1,21 @@
 import streamlit as st
 import os
 import pandas as pd
-import subprocess
+import asyncio
+import csv
+from io import StringIO
 from pdfextraction.bankDetailsExtract import parse_statement
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Import categorization function
+try:
+    from backend.interactors.transaction import call as categorize_transactions
+except ImportError as e:
+    st.error(f"Error importing categorization function: {e}")
+    categorize_transactions = None
 
 st.title("Bank Statement PDF to Excel Converter")
 
@@ -36,15 +49,67 @@ if uploaded_file is not None:
             )
         # Add Categorize button
         if st.button("Categorize"):
-            st.info("Running categorization (main.py)...")
-            result = subprocess.run(
-                ["python3", "main.py"],
-                capture_output=True,
-                text=True
-            )
-            st.write("Categorization Output:")
-            st.code(result.stdout)
-            if result.stderr:
-                st.error(result.stderr)
+            if categorize_transactions is None:
+                st.error("❌ Categorization function not available. Check your environment setup.")
+            else:
+                st.info("🔄 Running categorization...")
+                
+                # Convert DataFrame to CSV format for the categorization function
+                csv_buffer = StringIO()
+                df.to_csv(csv_buffer, index=False)
+                csv_content = csv_buffer.getvalue().encode('utf-8')
+                
+                # Create a file-like object for the categorization function
+                class FileWrapper:
+                    def __init__(self, content):
+                        self.content = content
+                        
+                    async def read(self):
+                        return self.content
+                
+                file_wrapper = FileWrapper(csv_content)
+                
+                try:
+                    # Run the categorization function directly
+                    with st.spinner("Categorizing transactions..."):
+                        result = asyncio.run(categorize_transactions(file_wrapper))
+                    
+                    st.success("✅ Categorization completed!")
+                    st.write("**Categorization Result:**")
+                    st.code(str(result))
+                    
+                    # Check if a categorized file was created
+                    categorized_file = "_022924 WellsFargo.xlsx - Sheet1.csv"
+                    if os.path.exists(categorized_file):
+                        st.success(f"📄 Categorized file created: {categorized_file}")
+                        
+                        # Try to read and display the categorized data
+                        try:
+                            categorized_df = pd.read_csv(categorized_file)
+                            st.write("**Categorized Transactions Preview:**")
+                            st.dataframe(categorized_df.head())
+                            
+                            # Provide download link
+                            with open(categorized_file, "rb") as f:
+                                st.download_button(
+                                    label="📥 Download Categorized CSV",
+                                    data=f.read(),
+                                    file_name=f"categorized_{uploaded_file.name.replace('.pdf', '.csv')}",
+                                    mime="text/csv"
+                                )
+                        except Exception as e:
+                            st.warning(f"Could not preview categorized file: {e}")
+                            
+                except Exception as e:
+                    st.error(f"❌ Categorization failed: {str(e)}")
+                    st.error("This might be due to missing API keys or network issues.")
+                    
+                    # Show helpful debug info
+                    with st.expander("🔍 Debugging Information"):
+                        st.write("**Environment Variables Check:**")
+                        st.write(f"- PINECONE_API_KEY: {'✅ Set' if os.getenv('PINECONE_API_KEY') else '❌ Missing'}")
+                        st.write(f"- GOOGLE_API_KEY: {'✅ Set' if os.getenv('GOOGLE_API_KEY') else '❌ Missing'}")
+                        st.write(f"- emb_model: {os.getenv('emb_model', 'Not set')}")
+                        st.write(f"**Error Details:** {str(e)}")
     else:
         st.error("No transactions found in this PDF.")

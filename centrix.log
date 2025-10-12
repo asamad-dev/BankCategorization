@@ -8,3 +8,28 @@
 2025-10-11 08:26:33,700 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
 2025-10-11 09:39:22,674 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
 2025-10-11 09:42:58,863 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
+2025-10-12 20:49:31,211 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
+2025-10-12 20:51:01,537 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
+2025-10-12 20:53:19,828 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
+2025-10-12 20:53:45,767 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2025-10-12 20:53:45,767 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: multi-qa-mpnet-base-dot-v1
+2025-10-12 20:53:50,101 - huggingface_hub.file_download - WARNING - Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2025-10-12 20:55:08,288 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
+2025-10-12 20:55:14,460 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2025-10-12 20:55:14,460 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: multi-qa-mpnet-base-dot-v1
+2025-10-12 20:55:17,819 - huggingface_hub.file_download - WARNING - Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2025-10-12 20:56:44,563 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
+2025-10-12 20:56:50,310 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2025-10-12 20:56:50,310 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: multi-qa-mpnet-base-dot-v1
+2025-10-12 20:57:09,829 - huggingface_hub.file_download - WARNING - Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2025-10-12 21:15:25,850 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
+2025-10-12 21:15:30,684 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2025-10-12 21:15:30,684 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: multi-qa-mpnet-base-dot-v1
+2025-10-12 21:15:34,104 - huggingface_hub.file_download - WARNING - Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed. Falling back to regular HTTP download. For better performance, install the package with: `pip install huggingface_hub[hf_xet]` or `pip install hf_xet`
+2025-10-12 21:17:30,689 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2025-10-12 21:17:30,690 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: multi-qa-mpnet-base-dot-v1
+2025-10-12 21:30:52,353 - backend.utils.logger - INFO - Logger has been set up successfully. All logs will be written to both the console and the 'centrix.log' file.
+2025-10-12 21:30:57,440 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2025-10-12 21:30:57,441 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: multi-qa-mpnet-base-dot-v1
+2025-10-12 21:31:02,094 - sentence_transformers.SentenceTransformer - INFO - Use pytorch device_name: cpu
+2025-10-12 21:31:02,094 - sentence_transformers.SentenceTransformer - INFO - Load pretrained SentenceTransformer: multi-qa-mpnet-base-dot-v1
